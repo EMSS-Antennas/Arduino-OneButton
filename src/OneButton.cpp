@@ -20,19 +20,24 @@
 
 // ----- Initialization and Default Values -----
 
+void (*OneButton::isrCallback)() = OneButton::isrDefaultUnused;
+void OneButton::isrDefaultUnused(){/*NOP*/};
 /**
  * @brief Construct a new OneButton object but not (yet) initialize the IO pin.
  */
 OneButton::OneButton() {
   _pin = -1;
+  isrCallback =  isrDefaultUnused;
+  _mode = CHANGE;
   // further initialization has moved to OneButton.h
 }
 
 // Initialize the OneButton library.
 OneButton::OneButton(const int pin, const bool activeLow, const bool pullupActive) {
   setup(pin, pullupActive ? INPUT_PULLUP : INPUT, activeLow);
+  isrCallback =  isrDefaultUnused;
+  _mode = CHANGE;
 }  // OneButton
-
 
 // initialize or re-initialize the input pin
 void OneButton::setup(const uint8_t pin, const uint8_t mode, const bool activeLow) {
@@ -72,6 +77,20 @@ void OneButton::setPressMs(const unsigned int ms) {
 void OneButton::setIdleMs(const unsigned int ms) {
   _idle_ms = ms;
 }  // setIdleMs
+
+void OneButton::attachInterupt(uint8_t mode,void (*userFunc)(void)) {
+  attachPinChangeInterrupt(digitalPinToPinChangeInterrupt(_pin), userFunc, mode);
+  isrCallback =  userFunc;
+  _mode = mode;
+}
+
+void OneButton::enableInterupt() {
+  enablePinChangeInterrupt(digitalPinToPinChangeInterrupt(_pin));
+}
+
+void OneButton::disableInterupt(uint8_t mode, void (*userFunc)(void)) {
+  disablePinChangeInterrupt(digitalPinToPinChangeInterrupt(_pin)); 
+}
 
 // save function for click event
 void OneButton::attachPress(callbackFunction newFunction) {

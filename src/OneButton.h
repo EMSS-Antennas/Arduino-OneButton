@@ -25,7 +25,8 @@
 #ifndef OneButton_h
 #define OneButton_h
 
-#include "Arduino.h"
+#include <Arduino.h>
+#include <PinChangeInterrupt.h>
 
 // ----- Callback function types -----
 
@@ -44,6 +45,7 @@ public:
    * use setup(...) to specify the hardware configuration. 
    */
   OneButton();
+    
 
   /**
    * Create a OneButton instance and setup.
@@ -52,7 +54,7 @@ public:
    * @param pullupActive Activate the internal pullup when available. Default is true.
    */
   explicit OneButton(const int pin, const bool activeLow = true, const bool pullupActive = true);
-
+  
   // ----- Set runtime parameters -----
 
 
@@ -106,6 +108,24 @@ public:
   void setIdleMs(const unsigned int ms);
 
   // ----- Attach events functions -----
+
+  /**
+   * Attach an interupt to be called immediately when a pin change is detected.
+   * @param userFunc This function will be called when the event has been detected. If no function provided use default
+   */
+  void attachInterupt(uint8_t mode = CHANGE, void (*userFunc)(void) = isrDefaultUnused);
+
+  /**
+   * Attach an interupt to be called immediately when a pin change is detected.
+   * @param userFunc This function will be called when the event has been detected. If no function provided use default
+   */
+  void enableInterupt();
+
+  /**
+   * Attach an interupt to be called immediately when a pin change is detected.
+   * @param userFunc This function will be called when the event has been detected. If no function provided use default
+   */
+  void disableInterupt(uint8_t mode = CHANGE, void (*userFunc)(void) = isrDefaultUnused);
 
   /**
    * Attach an event to be called immediately when a depress is detected.
@@ -209,6 +229,9 @@ public:
 
 
 private:
+  static void isrDefaultUnused();
+  static void (*isrCallback)();
+  uint8_t _mode = CHANGE;
   int _pin = -1;                 // hardware pin number.
   int _debounce_ms = 50;         // number of msecs for debounce times.
   unsigned int _click_ms = 400;  // number of msecs before a click is detected.
