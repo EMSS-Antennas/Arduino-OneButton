@@ -123,7 +123,7 @@ public:
 
   /**
    * Attach an interupt to be called immediately when a pin change is detected.
-   * @param userFunc This function will be called when the event has been detected. If no function provided use default
+   * @param userFunc This function will be called when the event has been detected, if no function provided use default.
    */
   void disableInterupt(uint8_t mode = CHANGE, void (*userFunc)(void) = isrDefaultUnused);
 
