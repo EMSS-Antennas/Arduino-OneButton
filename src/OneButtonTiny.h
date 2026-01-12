@@ -13,6 +13,7 @@
 #define OneButtonTiny_h
 
 #include "Arduino.h"
+#include <PinChangeInterrupt.h>
 
 // ----- Callback function types -----
 
@@ -74,6 +75,18 @@ public:
    */
   void attachLongPressStart(callbackFunction newFunction);
 
+  /**
+   * Attach an interrupt to be called immediately when a pin change is detected.
+   * @param mode Interrupt mode (e.g. CHANGE)
+   * @param userFunc Function to call on interrupt. If omitted a default no-op is used.
+   */
+  void attachInterupt(uint8_t mode = CHANGE, void (*userFunc)(void) = isrDefaultUnused);
+
+  /** Enable pin-change interrupt for the configured pin. */
+  void enableInterupt();
+
+  /** Disable pin-change interrupt for the configured pin. */
+  void disableInterupt(uint8_t mode = CHANGE, void (*userFunc)(void) = isrDefaultUnused);
 
   // ----- State machine functions -----
 
@@ -113,6 +126,8 @@ private:
   unsigned int _click_ms = 400;    // number of msecs before a click is detected.
   unsigned int _press_ms = 800;    // number of msecs before a long button press is detected
 
+  uint8_t _mode = CHANGE; // interrupt mode for pin change interrupt
+
   int _buttonPressed = 0;  // this is the level of the input pin when the button is pressed.
                            // LOW if the button connects the input pin to GND when pressed.
                            // HIGH if the button connects the input pin to VCC when pressed.
@@ -121,6 +136,10 @@ private:
   callbackFunction _clickFunc = NULL;
   callbackFunction _doubleClickFunc = NULL;
   callbackFunction _longPressStartFunc = NULL;
+
+  // ISR callback support (pin-change interrupt)
+  static void isrDefaultUnused();
+  static void (*isrCallback)();
 
   // These variables that hold information across the upcoming tick calls.
   // They are initialized once on program start and are updated every time the

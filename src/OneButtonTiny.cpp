@@ -18,6 +18,11 @@
 
 #include "OneButtonTiny.h"
 
+// ISR callback defaults
+void (*OneButtonTiny::isrCallback)() = OneButtonTiny::isrDefaultUnused;
+void OneButtonTiny::isrDefaultUnused() { /*NOP*/ }
+
+
 // ----- Initialization and Default Values -----
 
 /**
@@ -82,6 +87,24 @@ void OneButtonTiny::attachDoubleClick(callbackFunction newFunction) {
 void OneButtonTiny::attachLongPressStart(callbackFunction newFunction) {
   _longPressStartFunc = newFunction;
 }  // attachLongPressStart
+
+
+// Attach an interrupt to be called immediately when a pin change is detected.
+void OneButtonTiny::attachInterupt(uint8_t mode, void (*userFunc)(void)) {
+  attachPinChangeInterrupt(digitalPinToPinChangeInterrupt(_pin), userFunc, mode);
+  isrCallback = userFunc;
+  _mode = mode;
+}
+
+// Enable pin-change interrupt for the configured pin.
+void OneButtonTiny::enableInterupt() {
+  enablePinChangeInterrupt(digitalPinToPinChangeInterrupt(_pin));
+}
+
+// Disable pin-change interrupt for the configured pin.
+void OneButtonTiny::disableInterupt(uint8_t mode, void (*userFunc)(void)) {
+  disablePinChangeInterrupt(digitalPinToPinChangeInterrupt(_pin));
+}
 
 
 void OneButtonTiny::reset(void) {
