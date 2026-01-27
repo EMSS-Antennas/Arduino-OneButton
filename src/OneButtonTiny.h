@@ -146,7 +146,7 @@ private:
   // tick function is called.
 
   // define FiniteStateMachine
-  enum stateMachine_t : int {
+  enum stateMachine_t : uint8_t {
     OCS_INIT = 0,
     OCS_DOWN = 1,  // button is down
     OCS_UP = 2,    // button is up

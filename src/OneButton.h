@@ -28,6 +28,23 @@
 #include <Arduino.h>
 #include <PinChangeInterrupt.h>
 
+
+// Per-library debug control for OneButton.
+// Set __ONEBTN_DEBUG__ to 1 to enable lightweight debug prints for this library.
+#ifndef __ONEBTN_DEBUG__
+#define __ONEBTN_DEBUG__ 0
+#endif
+
+#if __ONEBTN_DEBUG__
+#ifdef ARDUINO
+#define ONEBTN_DEBUG_PRINT(...) Serial.println(F(__VA_ARGS__))
+#else
+#define ONEBTN_DEBUG_PRINT(...)
+#endif
+#else
+#define ONEBTN_DEBUG_PRINT(...)
+#endif
+
 // ----- Callback function types -----
 
 extern "C" {

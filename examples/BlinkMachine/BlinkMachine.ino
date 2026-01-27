@@ -51,7 +51,7 @@
 #include "OneButtonTiny.h"  // This example also works with reduced OneButtonTiny class saving.
 
 // The actions I ca do...
-typedef enum {
+typedef enum : uint8_t {
   ACTION_OFF,   // set LED "OFF".
   ACTION_ON,    // set LED "ON"
   ACTION_SLOW,  // blink LED "SLOW"
