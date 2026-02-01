@@ -1,245 +1,203 @@
 /**
- * @file OneButton.cpp
+ * @file OneButtonTiny.cpp
  *
  * @brief Library for detecting button clicks, doubleclicks and long press
- * pattern on a single button.
+ * pattern on a single button. RAM-optimized version.
  *
  * @author Matthias Hertel, https://www.mathertel.de
  * @Copyright Copyright (c) by Matthias Hertel, https://www.mathertel.de.
- *                          Ihor Nehrutsa, Ihor.Nehrutsa@gmail.com
+ *            Ihor Nehrutsa, Ihor.Nehrutsa@gmail.com
+ *            RAM optimization by EMSS-Antennas, 2026
  *
  * This work is licensed under a BSD style license. See
  * http://www.mathertel.de/License.aspx
- *
- * More information on: https://www.mathertel.de/Arduino/OneButtonLibrary.aspx
- *
- * Changelog: see OneButtonTiny.h
  */
 
 #include "OneButtonTiny.h"
 
-// ISR callback defaults
+// ISR callback defaults (static - shared across all instances)
 void (*OneButtonTiny::isrCallback)() = OneButtonTiny::isrDefaultUnused;
-void OneButtonTiny::isrDefaultUnused() { /*NOP*/ }
+void OneButtonTiny::isrDefaultUnused() { /* NOP */ }
 
 
-// ----- Initialization and Default Values -----
-
-/**
- * Initialize the OneButton library.
- * @param pin The pin to be used for input from a momentary button.
- * @param activeLow Set to true when the input level is LOW when the button is pressed, Default is true.
- * @param pullupActive Activate the internal pullup when available. Default is true.
- */
-OneButtonTiny::OneButtonTiny(const int pin, const bool activeLow, const bool pullupActive) {
-  _pin = pin;
-
+// ----- Constructor -----
+OneButtonTiny::OneButtonTiny(const uint8_t pin, const bool activeLow, const bool pullupActive) 
+    : _pin(pin), _flags(0), _state(OCS_INIT)
+{
+  // Set active level polarity in flags
   if (activeLow) {
-    // the button connects the input pin to GND when pressed.
-    _buttonPressed = LOW;
-
+    // button connects pin to GND when pressed - active level is LOW
+    // So we DON'T set FLAG_BUTTON_PRESSED (means active=LOW)
   } else {
-    // the button connects the input pin to VCC when pressed.
-    _buttonPressed = HIGH;
+    // button connects pin to VCC when pressed - active level is HIGH
+    _flags |= FLAG_BUTTON_PRESSED;
   }
 
-  if (pullupActive) {
-    // use the given pin as input and activate internal PULLUP resistor.
-    pinMode(pin, INPUT_PULLUP);
-  } else {
-    // use the given pin as input
-    pinMode(pin, INPUT);
-  }
-}  // OneButton
+  // Configure pin mode
+  pinMode(pin, pullupActive ? INPUT_PULLUP : INPUT);
+}
 
 
-// explicitly set the number of millisec that have to pass by before a click is assumed stable.
-void OneButtonTiny::setDebounceMs(const unsigned int ms) {
+// ----- Configuration setters -----
+
+void OneButtonTiny::setDebounceMs(const uint8_t ms) {
   _debounce_ms = ms;
-}  // setDebounceMs
+}
 
-
-// explicitly set the number of millisec that have to pass by before a click is detected.
-void OneButtonTiny::setClickMs(const unsigned int ms) {
+void OneButtonTiny::setClickMs(const uint16_t ms) {
   _click_ms = ms;
-}  // setClickMs
+}
 
-
-// explicitly set the number of millisec that have to pass by before a long button press is detected.
-void OneButtonTiny::setPressMs(const unsigned int ms) {
+void OneButtonTiny::setPressMs(const uint16_t ms) {
   _press_ms = ms;
-}  // setPressMs
+}
 
 
-// save function for click event
+// ----- Callback attachment -----
+
 void OneButtonTiny::attachClick(callbackFunction newFunction) {
   _clickFunc = newFunction;
-}  // attachClick
+}
 
-
-// save function for doubleClick event
 void OneButtonTiny::attachDoubleClick(callbackFunction newFunction) {
   _doubleClickFunc = newFunction;
-}  // attachDoubleClick
+}
 
-
-// save function for longPressStart event
 void OneButtonTiny::attachLongPressStart(callbackFunction newFunction) {
   _longPressStartFunc = newFunction;
-}  // attachLongPressStart
+}
 
 
-// Attach an interrupt to be called immediately when a pin change is detected.
+// ----- Interrupt support -----
+
 void OneButtonTiny::attachInterupt(uint8_t mode, void (*userFunc)(void)) {
   attachPinChangeInterrupt(digitalPinToPinChangeInterrupt(_pin), userFunc, mode);
   isrCallback = userFunc;
-  _mode = mode;
 }
 
-// Enable pin-change interrupt for the configured pin.
 void OneButtonTiny::enableInterupt() {
   enablePinChangeInterrupt(digitalPinToPinChangeInterrupt(_pin));
 }
 
-// Disable pin-change interrupt for the configured pin.
-void OneButtonTiny::disableInterupt(uint8_t mode, void (*userFunc)(void)) {
+void OneButtonTiny::disableInterupt() {
   disablePinChangeInterrupt(digitalPinToPinChangeInterrupt(_pin));
 }
 
 
+// ----- State machine -----
+
 void OneButtonTiny::reset(void) {
-  _state = OneButtonTiny::OCS_INIT;
-  _nClicks = 0;
+  _setState(OCS_INIT);
+  _setClicks(0);
   _startTime = 0;
+  _state = OCS_INIT;  // Keep legacy var in sync
 }
 
 
-/**
- * @brief Debounce input pin level for use in SpecialInput.
- */
-int OneButtonTiny::debounce(const int value) {
-  now = millis();  // current (relative) time in msecs.
-  if (_lastDebouncePinLevel == value) {
-    if (now - _lastDebounceTime >= _debounce_ms)
-      debouncedPinLevel = value;
+bool OneButtonTiny::_debounce(bool level) {
+  uint16_t now = _now();
+  
+  if (_getLastLevel() == level) {
+    // Level unchanged - check if debounce time elapsed
+    if ((uint16_t)(now - _lastDebounceTime) >= (uint8_t)(_debounce_ms >> 2)) {
+      _setDebouncedLevel(level);
+    }
   } else {
+    // Level changed - restart debounce timer
     _lastDebounceTime = now;
-    _lastDebouncePinLevel = value;
+    _setLastLevel(level);
   }
-  return debouncedPinLevel;
-};
+  return _getDebouncedLevel();
+}
 
 
-/**
- * @brief Check input of the configured pin,
- * debounce input pin level and then
- * advance the finite state machine (FSM).
- */
 void OneButtonTiny::tick(void) {
-  if (_pin >= 0) {
-    _fsm(debounce(digitalRead(_pin)) == _buttonPressed);
-  }
-}  // tick()
+  // Read pin and check if it matches the "pressed" level
+  bool rawLevel = digitalRead(_pin);
+  bool activeLevel = _getButtonPressed() ? rawLevel : !rawLevel;
+  _fsm(_debounce(activeLevel));
+}
 
 
 void OneButtonTiny::tick(bool activeLevel) {
-  _fsm(debounce(activeLevel));
+  _fsm(_debounce(activeLevel));
 }
 
 
-/**
- *  @brief Advance to a new state and save the last one to come back in cas of bouncing detection.
- */
-void OneButtonTiny::_newState(stateMachine_t nextState) {
-  _state = nextState;
-}  // _newState()
-
-
-/**
- * @brief Run the finite state machine (FSM) using the given level.
- */
 void OneButtonTiny::_fsm(bool activeLevel) {
-  unsigned long waitTime = (now - _startTime);
+  uint16_t now = _now();
+  uint16_t waitTime = (now - _startTime) << 2;  // Convert back to ms
+  stateMachine_t currentState = _getState();
 
-  // Implementation of the state machine
-  switch (_state) {
-    case OneButtonTiny::OCS_INIT:
-      // waiting for level to become active.
+  switch (currentState) {
+    case OCS_INIT:
+      // Waiting for button press
       if (activeLevel) {
-        _newState(OneButtonTiny::OCS_DOWN);
-        _startTime = now;  // remember starting time
-        _nClicks = 0;
-      }  // if
-      break;
-
-    case OneButtonTiny::OCS_DOWN:
-      // waiting for level to become inactive.
-
-      if (!activeLevel) {
-        _newState(OneButtonTiny::OCS_UP);
-        _startTime = now;  // remember starting time
-
-      } else if ((activeLevel) && (waitTime > _press_ms)) {
-        if (_longPressStartFunc) _longPressStartFunc();
-        _newState(OneButtonTiny::OCS_PRESS);
-      }  // if
-      break;
-
-    case OneButtonTiny::OCS_UP:
-      // level is inactive
-
-      // count as a short button down
-      _nClicks++;
-      _newState(OneButtonTiny::OCS_COUNT);
-      break;
-
-    case OneButtonTiny::OCS_COUNT:
-      // dobounce time is over, count clicks
-
-      if (activeLevel) {
-        // button is down again
-        _newState(OneButtonTiny::OCS_DOWN);
-        _startTime = now;  // remember starting time
-
-      } else if ((waitTime >= _click_ms) || (_nClicks == 2)) {
-        // now we know how many clicks have been made.
-
-        if (_nClicks == 1) {
-          // this was 1 click only.
-          if (_clickFunc) _clickFunc();
-
-        } else if (_nClicks == 2) {
-          // this was a 2 click sequence.
-          if (_doubleClickFunc) _doubleClickFunc();
-
-        }  // if
-
-        reset();
-      }  // if
-      break;
-
-    case OneButtonTiny::OCS_PRESS:
-      // waiting for pin being release after long press.
-
-      if (!activeLevel) {
-        _newState(OneButtonTiny::OCS_PRESSEND);
+        _setState(OCS_DOWN);
         _startTime = now;
-      }  // if
+        _setClicks(0);
+      }
       break;
 
-    case OneButtonTiny::OCS_PRESSEND:
-      // button was released.
+    case OCS_DOWN:
+      // Button is down, waiting for release or long press timeout
+      if (!activeLevel) {
+        // Button released
+        _setState(OCS_UP);
+        _startTime = now;
+      } else if (waitTime > _press_ms) {
+        // Long press detected
+        if (_longPressStartFunc) _longPressStartFunc();
+        _setState(OCS_PRESS);
+      }
+      break;
+
+    case OCS_UP:
+      // Button just released - count the click
+      _setClicks(_getClicks() + 1);
+      _setState(OCS_COUNT);
+      break;
+
+    case OCS_COUNT:
+      // Debounce complete, counting clicks
+      if (activeLevel) {
+        // Button pressed again (for double-click detection)
+        _setState(OCS_DOWN);
+        _startTime = now;
+      } else if (waitTime >= _click_ms || _getClicks() >= 2) {
+        // Timeout or max clicks reached - fire callback
+        uint8_t clicks = _getClicks();
+        if (clicks == 1 && _clickFunc) {
+          _clickFunc();
+        } else if (clicks >= 2 && _doubleClickFunc) {
+          _doubleClickFunc();
+        }
+        reset();
+      }
+      break;
+
+    case OCS_PRESS:
+      // In long press state, waiting for release
+      if (!activeLevel) {
+        _setState(OCS_PRESSEND);
+        _startTime = now;
+      }
+      break;
+
+    case OCS_PRESSEND:
+      // Long press ended
       reset();
       break;
 
     default:
-      // unknown state detected -> reset state machine
-      _newState(OneButtonTiny::OCS_INIT);
+      // Unknown state - reset
+      reset();
       break;
-  }  // if
-
-}  // OneButton.tick()
-
+  }
+  
+  // Keep legacy _state in sync
+  _state = _getState();
+}
 
 // end.
 
